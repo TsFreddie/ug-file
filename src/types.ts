@@ -203,7 +203,7 @@ export interface UploadFileOptions {
   currentSize?: number;
 }
 
-export type ConflictAction = 1 | 2 | 3 | "skip" | "overwrite" | "keep-both";
+export type ConflictAction = 0 | 1 | 3 | "skip" | "overwrite" | "keep-both";
 
 export interface DownloadTokenResponse {
   dl_token: string;

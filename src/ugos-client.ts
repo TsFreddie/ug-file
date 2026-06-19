@@ -359,8 +359,8 @@ export class UgosClient {
    * @param dst - The destination directory path.
    * @param action - Conflict resolution strategy when a target already
    *   exists:
-   *   - `"skip"` / `1` — Skip conflicting items (default).
-   *   - `"overwrite"` / `2` — Replace conflicting items.
+   *   - `"skip"` / `0` — Skip conflicting items (default).
+   *   - `"overwrite"` / `1` — Replace conflicting items.
    *   - `"keep-both"` / `3` — Keep both (the copy gets a renamed entry).
    * @throws {UgosApiError} If the API returns an error.
    * @throws {Error} If no active session exists (call {@link login} first).
@@ -382,8 +382,8 @@ export class UgosClient {
    * @param dst - The destination directory path.
    * @param action - Conflict resolution strategy when a target already
    *   exists:
-   *   - `"skip"` / `1` — Skip conflicting items (default).
-   *   - `"overwrite"` / `2` — Replace conflicting items.
+   *   - `"skip"` / `0` — Skip conflicting items (default).
+   *   - `"overwrite"` / `1` — Replace conflicting items.
    *   - `"keep-both"` / `3` — Keep both (the moved item gets a renamed
    *     entry).
    * @throws {UgosApiError} If the API returns an error.
@@ -832,17 +832,17 @@ function splitRemotePath(path: string): { dir: string; filename: string } {
   return { dir, filename };
 }
 
-function normalizeConflictAction(action: ConflictAction): 1 | 2 | 3 {
+function normalizeConflictAction(action: ConflictAction): 0 | 1 | 3 {
   if (typeof action === "number") {
     return action;
   }
   if (action === "overwrite") {
-    return 2;
+    return 1;
   }
   if (action === "keep-both") {
     return 3;
   }
-  return 1;
+  return 0;
 }
 
 async function toBuffer(content: UploadFileOptions["content"]): Promise<Uint8Array> {
