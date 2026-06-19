@@ -1,0 +1,21 @@
+{
+  "name": "ug-file",
+  "version": "0.1.0",
+  "description": "Unofficial SDK for UGOS Pro file management APIs.",
+  "type": "module",
+  "packageManager": "bun@1.3.13",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun run build:types && bun run build:bundle",
+    "build:bundle": "bun build ./src/index.ts --outdir ./dist",
+    "build:types": "tsc --emitDeclarationOnly",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
