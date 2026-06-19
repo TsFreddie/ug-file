@@ -16,20 +16,29 @@ Unofficial TypeScript SDK for UGOS Pro / UGREEN NAS file management APIs.
 
 ## Requirements
 
-- Bun for local development. The package is configured with `bun@1.3.13`.
 - A runtime with `fetch`, `FormData`, and `Blob` support. Node.js 18+ works out of the box.
 - Network access to your UGOS Pro / UGREEN NAS instance.
 
 ## Installation
 
 ```sh
-bun add ug-file
+npm install ug-file
 ```
 
-If installing from this repository during development:
+Or with other package managers:
+
+```sh
+yarn add ug-file
+pnpm add ug-file
+```
+
+## Development
+
+This library is developed with [Bun](https://bun.sh) (`bun@1.3.13`). Use Bun for local development workflows.
 
 ```sh
 bun install
+bun run typecheck
 bun run build
 ```
 
