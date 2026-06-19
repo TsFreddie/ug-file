@@ -506,7 +506,7 @@ export class UgosClient {
    *   `ArrayBuffer`, `ArrayBufferView`, or `ReadableStream<Uint8Array>`.
    * @param options - Optional upload parameters:
    *   - `changeTime?` — Modification timestamp (defaults to `Date.now()`).
-   *   - `actionType?` — Upload action type (defaults to `0`).
+   *   - `actionType?` — Conflict resolution strategy (defaults to `"skip"`):
    *   - `resume?` — Enable resumable upload (defaults to `true`).
    *   - `isLivePhoto?` — Mark as live photo upload (defaults to `false`).
    *   - `uuid?` — Custom upload UUID (auto-generated if omitted).
@@ -537,7 +537,7 @@ export class UgosClient {
     const file = await toBuffer(content);
     const changeTime = options?.changeTime ?? Date.now();
     const uuid = options?.uuid ?? `${randomUuid()}_1_${md5Hex(file)}`;
-    const actionType = options?.actionType ?? 0;
+    const actionType = normalizeConflictAction(options?.actionType ?? "skip");
     const resume = options?.resume ?? true;
     const isLivePhoto = options?.isLivePhoto ?? false;
     const beginSize = options?.beginSize ?? 0;

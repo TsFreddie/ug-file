@@ -195,7 +195,7 @@ export interface UploadFileOptions {
   filename: string;
   dir: string;
   changeTime?: number;
-  actionType?: number;
+  actionType?: ConflictAction;
   resume?: boolean;
   isLivePhoto?: boolean;
   uuid?: string;
