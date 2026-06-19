@@ -486,7 +486,7 @@ export class UgosClient {
     return encoding ? new TextDecoder().decode(bytes) : bytes;
   }
 
-  /**
+/**
    * Uploads file content to a remote path.
    *
    * The upload uses a three-step process:
@@ -504,8 +504,14 @@ export class UgosClient {
    * @param path - The full remote destination path (including filename).
    * @param content - The file content to upload. Accepts `string`, `Blob`,
    *   `ArrayBuffer`, `ArrayBufferView`, or `ReadableStream<Uint8Array>`.
-   * @throws {Error} If the path does not include a filename (i.e., looks
-   *   like a directory path).
+   * @param options - Optional upload parameters:
+   *   - `changeTime?` — Modification timestamp (defaults to `Date.now()`).
+   *   - `actionType?` — Upload action type (defaults to `0`).
+   *   - `resume?` — Enable resumable upload (defaults to `true`).
+   *   - `isLivePhoto?` — Mark as live photo upload (defaults to `false`).
+   *   - `uuid?` — Custom upload UUID (auto-generated if omitted).
+   *   - `beginSize?` — Starting byte offset for chunked uploads (defaults to `0`).
+   *   - `currentSize?` — Current uploaded bytes (defaults to `0`).
    * @throws {UgosApiError} If any upload step fails.
    * @throws {Error} If no active session exists (call {@link login} first).
    *
@@ -517,22 +523,76 @@ export class UgosClient {
    * @example Upload a Uint8Array
    * ```ts
    * const bytes = new TextEncoder().encode("Hello");
-   * await client.upload("/Documents/data.bin", bytes);
-   * ```
-   *
-   * @example Upload a Blob (browser)
-   * ```ts
-   * const blob = new Blob(["content"], { type: "text/plain" });
-   * await client.upload("/Documents/blob.txt", blob);
+   * await client.upload("/Documents/data.bin", bytes, { resume: false });
    * ```
    */
-  async upload(path: string, content: UploadFileOptions["content"]): Promise<void> {
+  async upload(
+    path: string,
+    content: UploadFileOptions["content"],
+    options?: Partial<Omit<UploadFileOptions, "content" | "filename" | "dir">>
+  ): Promise<void> {
     const { dir, filename } = splitRemotePath(path);
-    await this.uploadFile({
-      content,
-      filename,
-      dir
+    const urls = await this.getUrls();
+    const session = this.requireSession();
+    const file = await toBuffer(content);
+    const changeTime = options?.changeTime ?? Date.now();
+    const uuid = options?.uuid ?? `${randomUuid()}_1_${md5Hex(file)}`;
+    const actionType = options?.actionType ?? 0;
+    const resume = options?.resume ?? true;
+    const isLivePhoto = options?.isLivePhoto ?? false;
+    const beginSize = options?.beginSize ?? 0;
+    const currentSize = options?.currentSize ?? 0;
+
+    const form = new FormData();
+    form.set("uuid", uuid);
+    form.set("dir", dir);
+    form.set("action_type", String(actionType));
+    form.set("size", String(file.length));
+    form.set("begin_size", String(beginSize));
+    form.set("current_size", String(currentSize));
+    form.set("change_time", String(changeTime));
+    form.set("filename", filename);
+    form.set("resume", String(resume));
+    form.set("first_request", "true");
+    form.set("file", new Blob([]), filename);
+
+    const preUpload = await this.fetchJson<unknown>(urls.uploadFile(), {
+      method: "POST",
+      headers: this.authHeaders(session),
+      body: form
     });
+    this.assertSuccess(preUpload.body, "Pre-upload failed");
+
+    const updateInfo = await this.fetchJson<unknown>(
+      urls.updateTmpInfo(dir, uuid, filename, file.length),
+      {
+        method: "GET",
+        headers: this.authHeaders(session)
+      }
+    );
+    this.assertSuccess(updateInfo.body, "Upload temp info failed");
+
+    const upload = await this.fetchJson<unknown>(urls.uploadFileV2(), {
+      method: "POST",
+      headers: {
+        ...this.authHeaders(session),
+        "ug-param": JSON.stringify({
+          uuid,
+          file_name: encodeURIComponent(filename),
+          action_type: actionType,
+          size: file.length,
+          current_size: file.length,
+          resume,
+          dir: encodeURIComponent(dir),
+          change_time: changeTime,
+          is_live_photo: isLivePhoto,
+          first_request: false,
+          begin_size: beginSize
+        })
+      },
+      body: new Uint8Array(file)
+    });
+    this.assertSuccess(upload.body, "Upload file data failed");
   }
 
   /**
@@ -596,65 +656,6 @@ export class UgosClient {
       body: JSON.stringify(body)
     });
     return this.assertSuccess(response.body, "List directory failed");
-  }
-
-  private async uploadFile(options: UploadFileOptions): Promise<void> {
-    const urls = await this.getUrls();
-    const session = this.requireSession();
-    const file = await toBuffer(options.content);
-    const changeTime = options.changeTime ?? Date.now();
-    const uuid = `${randomUuid()}_1_${md5Hex(file)}`;
-
-    const form = new FormData();
-    form.set("uuid", uuid);
-    form.set("dir", options.dir);
-    form.set("action_type", "0");
-    form.set("size", String(file.length));
-    form.set("begin_size", "0");
-    form.set("current_size", "0");
-    form.set("change_time", String(changeTime));
-    form.set("filename", options.filename);
-    form.set("resume", "true");
-    form.set("first_request", "true");
-    form.set("file", new Blob([]), options.filename);
-
-    const preUpload = await this.fetchJson<unknown>(urls.uploadFile(), {
-      method: "POST",
-      headers: this.authHeaders(session),
-      body: form
-    });
-    this.assertSuccess(preUpload.body, "Pre-upload failed");
-
-    const updateInfo = await this.fetchJson<unknown>(
-      urls.updateTmpInfo(options.dir, uuid, options.filename, file.length),
-      {
-        method: "GET",
-        headers: this.authHeaders(session)
-      }
-    );
-    this.assertSuccess(updateInfo.body, "Upload temp info failed");
-
-    const upload = await this.fetchJson<unknown>(urls.uploadFileV2(), {
-      method: "POST",
-      headers: {
-        ...this.authHeaders(session),
-        "ug-param": JSON.stringify({
-          uuid,
-          file_name: encodeURIComponent(options.filename),
-          action_type: 0,
-          size: file.length,
-          current_size: file.length,
-          resume: true,
-          dir: encodeURIComponent(options.dir),
-          change_time: changeTime,
-          is_live_photo: false,
-          first_request: false,
-          begin_size: 0
-        })
-      },
-      body: new Uint8Array(file)
-    });
-    this.assertSuccess(upload.body, "Upload file data failed");
   }
 
   private async getDownloadToken(paths: string[], session = this.requireSession()): Promise<DownloadTokenResponse> {

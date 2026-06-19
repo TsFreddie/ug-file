@@ -195,6 +195,12 @@ export interface UploadFileOptions {
   filename: string;
   dir: string;
   changeTime?: number;
+  actionType?: number;
+  resume?: boolean;
+  isLivePhoto?: boolean;
+  uuid?: string;
+  beginSize?: number;
+  currentSize?: number;
 }
 
 export type ConflictAction = 1 | 2 | 3 | "skip" | "overwrite" | "keep-both";

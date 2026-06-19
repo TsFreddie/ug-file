@@ -11,5 +11,6 @@ export type {
   UgosLinkClientConfig,
   UgosRoot,
   UgosClientConfig,
-  UgosUrlClientConfig
+  UgosUrlClientConfig,
+  UploadFileOptions
 } from "./types.js";
