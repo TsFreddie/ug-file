@@ -181,8 +181,8 @@ await client.delete("/Documents/remove-forever.txt");
 
 Conflict actions for `copy` and `move` are:
 
-- `"skip"` or `1`: skip conflicting items.
-- `"overwrite"` or `2`: replace conflicting items.
+- `"skip"` or `0`: skip conflicting items.
+- `"overwrite"` or `1`: replace conflicting items.
 - `"keep-both"` or `3`: keep both files by allowing UGOS to rename the copied or moved entry.
 
 ## API Overview
