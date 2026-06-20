@@ -4,6 +4,7 @@ import type {
   ConflictAction,
   DownloadTokenResponse,
   GenericResponse,
+  LoginCodeRequiredResponse,
   ListDirRequest,
   LoginResponse,
   ReadFileEncoding,
@@ -12,6 +13,11 @@ import type {
   UgosDirent,
   UgosFileEntry,
   UgosListDirResponse,
+  UgosLoginCodeChallenge,
+  UgosLoginCodeOptions,
+  UgosLoginCredentials,
+  UgosLoginResult,
+  UgosLoginTrustInfo,
   UgosRoot,
   UgosClientConfig,
   UploadFileOptions
@@ -33,6 +39,12 @@ const DEFAULT_LIST_DIR_REQUEST: ListDirRequest = {
 
 const UGREENLINK_NODE_INFO_URL = "https://api.ugnas.com/api/p2p/v2/ta/nodeInfo/byAlias";
 
+const DEFAULT_LOGIN_TRUST_INFO: UgosLoginTrustInfo = {
+  client_type: "sdk",
+  system: runtimeSystem(),
+  dev_name: "ug-file"
+};
+
 export class UgosClient {
   private readonly config: UgosClientConfig;
   private urls?: UrlBuilder;
@@ -44,24 +56,22 @@ export class UgosClient {
    * Creates a new UGOS client instance.
    *
    * @param config - Client configuration. Provide either a direct `url` or a
-   *   UGREENlink `uglinkid` for automatic URL resolution.
+   *   UGREENlink `uglinkid` for automatic URL resolution. Use `trustInfo` to
+   *   describe this SDK/device when completing OTP login with trusted-device
+   *   enabled.
    * @throws If no `fetch` implementation is available (Node <18 without polyfill).
    *
    * @example Direct URL
    * ```ts
    * const client = new UgosClient({
-   *   url: "https://example.ugnas.com",
-   *   username: "admin",
-   *   password: "secret"
+   *   url: "https://example.ugnas.com"
    * });
    * ```
    *
    * @example UGREENlink ID
    * ```ts
    * const client = new UgosClient({
-   *   uglinkid: "myalias",
-   *   username: "admin",
-   *   password: "secret"
+   *   uglinkid: "myalias"
    * });
    * ```
    */
@@ -130,19 +140,45 @@ export class UgosClient {
    * in.
    *
    * The session is populated after a successful {@link login} call and
-   * contains the session tokens, user ID, public key, and the raw login
-   * response.
+   * contains the session tokens, user ID, and public key.
    */
   get currentSession(): SessionContainer | undefined {
-    return this.session;
+    return this.exportSession();
   }
 
-  private async getPasswordRSA(): Promise<string> {
+  /**
+   * Returns a copy of the current session for reuse with {@link login}.
+   */
+  exportSession(): SessionContainer | undefined {
+    return this.session ? { ...this.session } : undefined;
+  }
+
+  /**
+   * Checks whether the current session token is still valid.
+   *
+   * @returns `true` when the server accepts the current token, otherwise
+   *   `false`. Returns `false` when no session is loaded.
+   * @throws {UgosHttpError} If an HTTP transport error occurs.
+   */
+  async checkLogin(): Promise<boolean> {
+    if (!this.session) {
+      return false;
+    }
+
+    const urls = await this.getUrls();
+    const response = await this.fetchJson<unknown>(urls.isLogin(), {
+      method: "GET",
+      headers: this.authHeaders(this.session)
+    });
+    return response.body.code === 200;
+  }
+
+  private async getPasswordRSA(username: string): Promise<string> {
     const urls = await this.getUrls();
     const response = await this.fetchJson<unknown>(urls.rsaQuery(), {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ username: this.config.username })
+      body: JSON.stringify({ username })
     });
     this.assertSuccess(response.body, "RSA query failed");
 
@@ -164,44 +200,134 @@ export class UgosClient {
    * 3. RSA-encrypts the password with the server's public key.
    * 4. Sends the encrypted credentials to the login endpoint.
    *
+   * Passing a previously exported session restores it without sending a
+   * password.
+   *
    * On success, the session is stored internally and used for all
    * subsequent authenticated requests.
    *
-   * @returns A {@link SessionContainer} with the session tokens, user ID,
-   *   public key, and the full login response.
+   * @returns A login result indicating success, OTP requirement, or API
+   *   failure.
    * @throws {UgosApiError} If the RSA query or login API returns an error.
    * @throws {UgosHttpError} If an HTTP transport error occurs.
    *
    * @example
    * ```ts
-   * const session = await client.login();
-   * console.log("Logged in as uid:", session.uid);
+   * const result = await client.login("admin", "secret");
+   * if (result.requiresCode) {
+   *   await result.verifyCode("123456", true);
+   * } else if (result.success) {
+   *   console.log("Logged in as uid:", result.session.uid);
+   * }
+   * ```
+   *
+   * @example Restore an exported session
+   * ```ts
+   * await client.login(session);
    * ```
    */
-  async login(): Promise<SessionContainer> {
+  async login(credentials: UgosLoginCredentials): Promise<UgosLoginResult>;
+  async login(session: SessionContainer): Promise<UgosLoginResult>;
+  async login(username: string, password: string): Promise<UgosLoginResult>;
+  async login(
+    authOrUsername: UgosLoginCredentials | SessionContainer | string,
+    password?: string
+  ): Promise<UgosLoginResult> {
+    const auth = typeof authOrUsername === "string"
+      ? { username: authOrUsername, password: requirePassword(password) }
+      : authOrUsername;
+
+    if (isSessionContainer(auth)) {
+      this.session = { ...auth };
+      return this.loginSuccess({ ...this.session });
+    }
+
     const urls = await this.getUrls();
-    const passwordRsa = await this.getPasswordRSA();
-    const response = await this.fetchJson<LoginResponse>(urls.login(), {
+    const passwordRsa = await this.getPasswordRSA(auth.username);
+    const response = await this.fetchJson<LoginResponse | LoginCodeRequiredResponse>(urls.login(), {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
-        username: this.config.username,
-        password: rsaEncryptBase64(this.config.password, passwordRsa),
+        username: auth.username,
+        password: rsaEncryptBase64(auth.password, passwordRsa),
         otp: true,
         is_simple: true
       })
     });
-    const data = this.assertSuccess(response.body, "Login failed");
+    return this.loginResult(response.body);
+  }
 
-    const session: SessionContainer = {
-      tokenId: data.token_id,
-      token: data.token,
-      uid: data.uid,
-      publicKey: data.public_key,
-      login: data
+  private async verifyLoginCode(
+    challenge: UgosLoginCodeChallenge,
+    code: string,
+    trustOrOptions?: boolean | UgosLoginCodeOptions
+  ): Promise<UgosLoginResult> {
+    const options = normalizeLoginCodeOptions(trustOrOptions);
+    const urls = await this.getUrls();
+    const response = await this.fetchJson<LoginResponse | LoginCodeRequiredResponse>(urls.codeLogin(), {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        code,
+        type: options?.type ?? 1,
+        token_id: challenge.tokenId,
+        trust_info: { ...DEFAULT_LOGIN_TRUST_INFO, ...this.config.trustInfo, ...options?.trustInfo },
+        trust: options?.trust ?? false
+      })
+    });
+    return this.loginResult(response.body);
+  }
+
+  private loginResult(body: GenericResponse<LoginResponse | LoginCodeRequiredResponse>): UgosLoginResult {
+    if (body.code !== 200) {
+      return loginFailure(body);
+    }
+
+    if (isLoginResponse(body.data)) {
+      const session: SessionContainer = {
+        tokenId: body.data.token_id,
+        token: body.data.token,
+        uid: body.data.uid,
+        publicKey: body.data.public_key
+      };
+      this.session = session;
+      return this.loginSuccess({ ...session }, body as GenericResponse<LoginResponse>);
+    }
+
+    if (isLoginCodeRequiredResponse(body.data)) {
+      const challenge: UgosLoginCodeChallenge = {
+        tokenId: body.data.token_id,
+        uid: body.data.uid,
+        role: body.data.role,
+        urgentEmail: body.data.urgent_email,
+        data: body.data
+      };
+      return {
+        success: false,
+        requiresCode: true,
+        challenge,
+        code: body.code,
+        message: body.msg,
+        data: body.data,
+        body: body as GenericResponse<LoginCodeRequiredResponse>,
+        verifyCode: (code, trustOrOptions) => this.verifyLoginCode(challenge, code, trustOrOptions)
+      };
+    }
+
+    return loginFailure({
+      ...body,
+      msg: body.msg ?? "Login response did not include a session or OTP challenge"
+    });
+  }
+
+  private loginSuccess(session: SessionContainer, body?: GenericResponse<LoginResponse>): UgosLoginResult {
+    return {
+      success: true,
+      requiresCode: false,
+      session,
+      data: body?.data,
+      body
     };
-    this.session = session;
-    return session;
   }
 
   /**
@@ -809,6 +935,47 @@ export class UgosClient {
 
 function jsonHeaders(): Record<string, string> {
   return { "content-type": "application/json" };
+}
+
+function isSessionContainer(value: UgosLoginCredentials | SessionContainer): value is SessionContainer {
+  return "tokenId" in value && "token" in value && "uid" in value && "publicKey" in value;
+}
+
+function isLoginResponse(value: LoginResponse | LoginCodeRequiredResponse): value is LoginResponse {
+  return "token" in value && "public_key" in value;
+}
+
+function isLoginCodeRequiredResponse(value: LoginResponse | LoginCodeRequiredResponse): value is LoginCodeRequiredResponse {
+  return "token_id" in value && !("token" in value) && !("public_key" in value);
+}
+
+function loginFailure(body: GenericResponse<unknown>): UgosLoginResult {
+  return {
+    success: false,
+    requiresCode: false,
+    code: body.code,
+    message: body.msg,
+    data: body.data,
+    body
+  };
+}
+
+function normalizeLoginCodeOptions(trustOrOptions: boolean | UgosLoginCodeOptions | undefined): UgosLoginCodeOptions | undefined {
+  return typeof trustOrOptions === "boolean" ? { trust: trustOrOptions } : trustOrOptions;
+}
+
+function runtimeSystem(): string {
+  if (globalThis.navigator?.platform) {
+    return globalThis.navigator.platform;
+  }
+  return "unknown";
+}
+
+function requirePassword(password: string | undefined): string {
+  if (password === undefined) {
+    throw new Error("Password is required when logging in with a username.");
+  }
+  return password;
 }
 
 function toDirent(entry: UgosFileEntry): UgosDirent {

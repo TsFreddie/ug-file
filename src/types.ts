@@ -1,18 +1,73 @@
 export type UgosClientConfig = UgosUrlClientConfig | UgosLinkClientConfig;
 
-export interface UgosUrlClientConfig {
-  url: string;
-  username: string;
-  password: string;
+export interface UgosClientBaseConfig {
   fetch?: typeof fetch;
+  trustInfo?: UgosLoginTrustInfo;
 }
 
-export interface UgosLinkClientConfig {
+export interface UgosUrlClientConfig extends UgosClientBaseConfig {
+  url: string;
+}
+
+export interface UgosLinkClientConfig extends UgosClientBaseConfig {
   uglinkid: string;
+}
+
+export interface UgosLoginCredentials {
   username: string;
   password: string;
-  fetch?: typeof fetch;
 }
+
+export interface UgosLoginTrustInfo {
+  client_type?: string;
+  system?: string;
+  dev_name?: string;
+  [key: string]: unknown;
+}
+
+export interface UgosLoginCodeOptions {
+  type?: number;
+  trust?: boolean;
+  trustInfo?: UgosLoginTrustInfo;
+}
+
+export interface UgosLoginCodeChallenge {
+  tokenId: string;
+  uid?: number;
+  role?: string;
+  urgentEmail?: string;
+  data: LoginCodeRequiredResponse;
+}
+
+export interface UgosLoginSuccessResult {
+  success: true;
+  requiresCode: false;
+  session: SessionContainer;
+  data?: LoginResponse;
+  body?: GenericResponse<LoginResponse>;
+}
+
+export interface UgosLoginCodeRequiredResult {
+  success: false;
+  requiresCode: true;
+  challenge: UgosLoginCodeChallenge;
+  code: number;
+  message?: string;
+  data: LoginCodeRequiredResponse;
+  body: GenericResponse<LoginCodeRequiredResponse>;
+  verifyCode(code: string, trust?: boolean | UgosLoginCodeOptions): Promise<UgosLoginResult>;
+}
+
+export interface UgosLoginFailureResult {
+  success: false;
+  requiresCode: false;
+  code: number;
+  message?: string;
+  data?: unknown;
+  body: GenericResponse<unknown>;
+}
+
+export type UgosLoginResult = UgosLoginSuccessResult | UgosLoginCodeRequiredResult | UgosLoginFailureResult;
 
 export interface GenericResponse<T> {
   code: number;
@@ -47,7 +102,6 @@ export interface SessionContainer {
   token: string;
   uid: number;
   publicKey: string;
-  login: LoginResponse;
 }
 
 export interface LoginResponse {
@@ -83,6 +137,16 @@ export interface LoginResponse {
   urgent_email?: string;
   username?: string;
   version_number?: number;
+  [key: string]: unknown;
+}
+
+export interface LoginCodeRequiredResponse {
+  enable_otp?: boolean;
+  is_exceed?: boolean;
+  role?: string;
+  token_id: string;
+  uid?: number;
+  urgent_email?: string;
   [key: string]: unknown;
 }
 

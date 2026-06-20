@@ -7,6 +7,7 @@ Unofficial TypeScript SDK for UGOS Pro / UGREEN NAS file management APIs.
 ## Features
 
 - Authenticate against UGOS Pro with RSA-encrypted credentials.
+- Reuse exported sessions without storing passwords in the client.
 - Connect by direct UGOS URL or by UGREENlink ID.
 - List root folders and directory contents with file/directory helpers.
 - Read, download, and upload files.
@@ -48,12 +49,18 @@ bun run build
 import { UgosClient } from "ug-file";
 
 const client = new UgosClient({
-  url: "https://your-nas.example.com",
-  username: "admin",
-  password: "your-password"
+  url: "https://your-nas.example.com"
 });
 
-await client.login();
+let login = await client.login("admin", "your-password");
+
+if (login.requiresCode) {
+  login = await login.verifyCode("123456", true);
+}
+
+if (!login.success) {
+  throw new Error(login.message ?? `Login failed: ${login.code}`);
+}
 
 const entries = await client.list("/Documents");
 for (const entry of entries) {
@@ -69,9 +76,7 @@ Use `url` when you already know the UGOS base URL.
 
 ```ts
 const client = new UgosClient({
-  url: "https://your-nas.example.com",
-  username: "admin",
-  password: "your-password"
+  url: "https://your-nas.example.com"
 });
 ```
 
@@ -81,9 +86,7 @@ Use `uglinkid` to resolve a UGREENlink alias automatically through the public UG
 
 ```ts
 const client = new UgosClient({
-  uglinkid: "your-alias",
-  username: "admin",
-  password: "your-password"
+  uglinkid: "your-alias"
 });
 ```
 
@@ -100,19 +103,60 @@ Pass `fetch` when your runtime does not provide `globalThis.fetch`, or when you 
 ```ts
 const client = new UgosClient({
   url: "https://your-nas.example.com",
-  username: "admin",
-  password: "your-password",
+  trustInfo: {
+    client_type: "sdk",
+    system: "node",
+    dev_name: "backup-worker"
+  },
   fetch: customFetch
 });
 ```
 
 ## Usage
 
-Call `login()` before using authenticated file APIs.
+Call `login()` before using authenticated file APIs. Credentials are passed to `login()` and are not stored in the client.
 
 ```ts
-const session = await client.login();
-console.log(session.uid);
+const result = await client.login("admin", "your-password");
+
+if (result.success) {
+  console.log(result.session.uid);
+}
+```
+
+When UGOS requires OTP, `login()` returns an interactive challenge result. Pass `true` to `verifyCode()` to trust this device, or `false` to avoid adding a trusted device.
+
+```ts
+let result = await client.login("admin", "your-password");
+
+if (result.requiresCode) {
+  result = await result.verifyCode("123456", true);
+}
+
+if (!result.success) {
+  throw new Error(result.message ?? `Login failed: ${result.code}`);
+}
+```
+
+Use `checkLogin()` to verify whether the current in-memory token is still valid:
+
+```ts
+if (!(await client.checkLogin())) {
+  const result = await client.login("admin", "your-password");
+  if (!result.success) {
+    throw new Error(result.message ?? `Login failed: ${result.code}`);
+  }
+}
+```
+
+You can export the in-memory session and use it to authenticate another client without sending a password again:
+
+```ts
+const exportedSession = client.exportSession();
+
+if (exportedSession) {
+  await anotherClient.login(exportedSession);
+}
 ```
 
 ### List Files
@@ -192,13 +236,17 @@ Main exports:
 - `UgosClient`
 - `UgosApiError`
 - `UgosHttpError`
-- Type exports including `UgosClientConfig`, `UgosDirent`, `UgosFileEntry`, `UgosRoot`, `SessionContainer`, `LoginResponse`, and `ConflictAction`.
+- Type exports including `UgosClientConfig`, `UgosLoginCredentials`, `UgosLoginResult`, `UgosLoginCodeOptions`, `UgosDirent`, `UgosFileEntry`, `UgosRoot`, `SessionContainer`, `LoginResponse`, and `ConflictAction`.
 
 `UgosClient` methods:
 
 - `UgosClient.resolveUgreenLinkUrl(ugreenLinkId, fetchImpl?)`
-- `client.login()`
+- `client.login(username, password)`
+- `client.login(credentialsOrSession)`
+- `loginResult.verifyCode(code, trustOrOptions?)`
+- `client.checkLogin()`
 - `client.currentSession`
+- `client.exportSession()`
 - `client.list(path?, options?)`
 - `client.exists(path)`
 - `client.root()`
@@ -219,7 +267,10 @@ Main exports:
 import { UgosApiError, UgosHttpError } from "ug-file";
 
 try {
-  await client.login();
+  const result = await client.login("admin", "your-password");
+  if (!result.success) {
+    throw new Error(result.message ?? `Login failed: ${result.code}`);
+  }
   await client.list("/Documents");
 } catch (error) {
   if (error instanceof UgosApiError) {

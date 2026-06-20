@@ -6,11 +6,15 @@ export class UrlBuilder {
   }
 
   rsaQuery(): string {
-    return `${this.baseUrl}/ugreen/v1/verify/check?token=`;
+    return `${this.baseUrl}/ugreen/v1/verify/check`;
   }
 
   login(): string {
     return `${this.baseUrl}/ugreen/v1/verify/login`;
+  }
+
+  codeLogin(): string {
+    return `${this.baseUrl}/ugreen/v1/verify/code/login`;
   }
 
   isLogin(): string {
@@ -34,7 +38,7 @@ export class UrlBuilder {
   }
 
   uploadFile(): string {
-    return `${this.baseUrl}/ugreen/v1/filemgr/fileUpload?`;
+    return `${this.baseUrl}/ugreen/v1/filemgr/fileUpload`;
   }
 
   updateTmpInfo(dir: string, uuid: string, filename: string, size: number): string {
