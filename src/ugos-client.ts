@@ -148,9 +148,15 @@ export class UgosClient {
 
   /**
    * Returns a copy of the current session for reuse with {@link login}.
+   *
+   * Only sessions created with `keepalive: true` can be exported.
+   * Non-keepalive sessions return `undefined`.
    */
   exportSession(): SessionContainer | undefined {
-    return this.session ? { ...this.session } : undefined;
+    if (!this.session?.keepalive) {
+      return undefined;
+    }
+    return { ...this.session };
   }
 
   /**
@@ -242,6 +248,7 @@ export class UgosClient {
       return this.loginSuccess({ ...this.session });
     }
 
+    const keepalive = auth.keepalive ?? false;
     const urls = await this.getUrls();
     const passwordRsa = await this.getPasswordRSA(auth.username);
     const response = await this.fetchJson<LoginResponse | LoginCodeRequiredResponse>(urls.login(), {
@@ -251,15 +258,17 @@ export class UgosClient {
         username: auth.username,
         password: rsaEncryptBase64(auth.password, passwordRsa),
         otp: true,
+        keepalive,
         is_simple: true
       })
     });
-    return this.loginResult(response.body);
+    return this.loginResult(response.body, keepalive);
   }
 
   private async verifyLoginCode(
     challenge: UgosLoginCodeChallenge,
     code: string,
+    keepalive: boolean,
     trustOrOptions?: boolean | UgosLoginCodeOptions
   ): Promise<UgosLoginResult> {
     const options = normalizeLoginCodeOptions(trustOrOptions);
@@ -275,10 +284,10 @@ export class UgosClient {
         trust: options?.trust ?? false
       })
     });
-    return this.loginResult(response.body);
+    return this.loginResult(response.body, keepalive);
   }
 
-  private loginResult(body: GenericResponse<LoginResponse | LoginCodeRequiredResponse>): UgosLoginResult {
+  private loginResult(body: GenericResponse<LoginResponse | LoginCodeRequiredResponse>, keepalive: boolean): UgosLoginResult {
     if (body.code !== 200) {
       return loginFailure(body);
     }
@@ -288,7 +297,8 @@ export class UgosClient {
         tokenId: body.data.token_id,
         token: body.data.token,
         uid: body.data.uid,
-        publicKey: body.data.public_key
+        publicKey: body.data.public_key,
+        keepalive
       };
       this.session = session;
       return this.loginSuccess({ ...session }, body as GenericResponse<LoginResponse>);
@@ -310,7 +320,7 @@ export class UgosClient {
         message: body.msg,
         data: body.data,
         body: body as GenericResponse<LoginCodeRequiredResponse>,
-        verifyCode: (code, trustOrOptions) => this.verifyLoginCode(challenge, code, trustOrOptions)
+        verifyCode: (code, trustOrOptions) => this.verifyLoginCode(challenge, code, keepalive, trustOrOptions)
       };
     }
 

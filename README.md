@@ -52,7 +52,7 @@ const client = new UgosClient({
   url: "https://your-nas.example.com"
 });
 
-let login = await client.login("admin", "your-password");
+let login = await client.login({ username: "admin", password: "your-password", keepalive: true });
 
 if (login.requiresCode) {
   login = await login.verifyCode("123456", true);
@@ -117,17 +117,17 @@ const client = new UgosClient({
 Call `login()` before using authenticated file APIs. Credentials are passed to `login()` and are not stored in the client.
 
 ```ts
-const result = await client.login("admin", "your-password");
+const result = await client.login({ username: "admin", password: "your-password", keepalive: true });
 
 if (result.success) {
   console.log(result.session.uid);
 }
 ```
 
-When UGOS requires OTP, `login()` returns an interactive challenge result. Pass `true` to `verifyCode()` to trust this device, or `false` to avoid adding a trusted device.
+When UGOS requires OTP, `login()` returns an interactive challenge result. Pass `keepalive: true` to create a session that can be exported and reused later (see [Session export](#session-export)). Pass `true` to `verifyCode()` to trust this device, or `false` to avoid adding a trusted device.
 
 ```ts
-let result = await client.login("admin", "your-password");
+let result = await client.login({ username: "admin", password: "your-password", keepalive: true });
 
 if (result.requiresCode) {
   result = await result.verifyCode("123456", true);
@@ -142,14 +142,16 @@ Use `checkLogin()` to verify whether the current in-memory token is still valid:
 
 ```ts
 if (!(await client.checkLogin())) {
-  const result = await client.login("admin", "your-password");
+  const result = await client.login({ username: "admin", password: "your-password", keepalive: true });
   if (!result.success) {
     throw new Error(result.message ?? `Login failed: ${result.code}`);
   }
 }
 ```
 
-You can export the in-memory session and use it to authenticate another client without sending a password again:
+### Session export
+
+Only sessions created with `keepalive: true` can be exported. If you logged in without `keepalive` (or with `keepalive: false`), `exportSession()` returns `undefined`.
 
 ```ts
 const exportedSession = client.exportSession();
@@ -242,11 +244,12 @@ Main exports:
 
 - `UgosClient.resolveUgreenLinkUrl(ugreenLinkId, fetchImpl?)`
 - `client.login(username, password)`
+- `client.login({ username, password, keepalive? })`
 - `client.login(credentialsOrSession)`
 - `loginResult.verifyCode(code, trustOrOptions?)`
 - `client.checkLogin()`
 - `client.currentSession`
-- `client.exportSession()`
+- `client.exportSession()` — returns session only when logged in with `keepalive: true`
 - `client.list(path?, options?)`
 - `client.exists(path)`
 - `client.root()`
@@ -267,7 +270,7 @@ Main exports:
 import { UgosApiError, UgosHttpError } from "ug-file";
 
 try {
-  const result = await client.login("admin", "your-password");
+  const result = await client.login({ username: "admin", password: "your-password", keepalive: true });
   if (!result.success) {
     throw new Error(result.message ?? `Login failed: ${result.code}`);
   }

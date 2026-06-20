@@ -16,6 +16,7 @@ export interface UgosLinkClientConfig extends UgosClientBaseConfig {
 export interface UgosLoginCredentials {
   username: string;
   password: string;
+  keepalive?: boolean;
 }
 
 export interface UgosLoginTrustInfo {
@@ -102,6 +103,7 @@ export interface SessionContainer {
   token: string;
   uid: number;
   publicKey: string;
+  keepalive: boolean;
 }
 
 export interface LoginResponse {
